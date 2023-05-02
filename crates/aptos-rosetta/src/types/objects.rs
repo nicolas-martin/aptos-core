@@ -394,6 +394,23 @@ impl Operation {
         )
     }
 
+    pub fn withdraw_undelegated(
+        operation_index: u64,
+        status: Option<OperationStatusType>,
+        owner: AccountAddress,
+        pool_address: Option<AccountIdentifier>,
+        amount: Option<u64>,
+    ) -> Operation {
+        Operation::new(
+            OperationType::WithdrawUndelegated,
+            operation_index,
+            status,
+            AccountIdentifier::base_account(owner),
+            None,
+            Some(OperationMetadata::withdraw_undelegated(pool_address, amount)),
+        )
+    }
+
     pub fn distribute_staking_rewards(
         operation_index: u64,
         status: Option<OperationStatusType>,
@@ -655,6 +672,14 @@ impl OperationMetadata {
     pub fn unlock_stake(operator: Option<AccountIdentifier>, amount: Option<u64>) -> Self {
         OperationMetadata {
             operator,
+            amount: amount.map(U64::from),
+            ..Default::default()
+        }
+    }
+
+    pub fn withdraw_undelegated(pool_address: Option<AccountIdentifier>, amount: Option<u64>) -> Self {
+        OperationMetadata {
+            operator: pool_address,
             amount: amount.map(U64::from),
             ..Default::default()
         }
@@ -1561,13 +1586,57 @@ async fn parse_staking_contract_resource_changes(
 
 // TODO: implement staking and withdrawals parsing
 async fn parse_delegation_pool_resource_changes(
-    _owner_address: AccountAddress,
-    _data: &[u8],
-    _events: &[ContractEvent],
-    _operation_index: u64,
+    owner_address: AccountAddress,
+    data: &[u8],
+    events: &[ContractEvent],
+    operation_index: u64,
     _changes: &WriteSet,
 ) -> ApiResult<Vec<Operation>> {
-    let operations = Vec::new();
+    let mut operations = Vec::new();
+        let mut operation_index_mut = operation_index;
+
+        if let Ok(delegation_pool) = bcs::from_bytes::<DelegationPool>(data) {
+            let inactive_stake_account = AccountIdentifier::inactive_stake_account(owner_address);
+
+            // Get all set operator events for this stake pool
+            let withdraw_stake_events = filter_events(
+                events,
+                delegation_pool.withdraw_stake_events.key(),
+                |event_key, event| {
+                    if let Ok(event) = bcs::from_bytes::<WithdrawUndelegated>(event.event_data()) {
+                        Some(event)
+                    } else {
+                        // If we can't parse the withdraw event, then there's nothing
+                        warn!(
+                            "Failed to parse withdraw undelegated event!  Skipping for {}:{}",
+                            event_key.get_creator_address(),
+                            event_key.get_creation_number()
+                        );
+                        None
+                    }
+                },
+            );
+
+            // For every withdraw event, we have to remove the amounts from the stake pools
+            for event in withdraw_stake_events {
+                operations.push(Operation::withdraw_undelegated(
+                    operation_index_mut,
+                    Some(OperationStatusType::Success),
+                    owner_address,
+                    Some(AccountIdentifier::base_account(
+                                            inactive_stake_account
+                                            .operator_address()
+                                            .ok()
+                                            .unwrap())
+                    ),
+                    Some(event.amount_withdrawn),
+                ));
+                operation_index_mut += 1;
+                //TODO: DO I NEED TO UPDATE ANY OTHER BALANCE?
+            }
+        } else {
+            warn!("Failed to parse delegation pool");
+        }
 
     Ok(operations)
 }
@@ -1671,6 +1740,7 @@ pub enum InternalOperation {
     InitializeStakePool(InitializeStakePool),
     ResetLockup(ResetLockup),
     UnlockStake(UnlockStake),
+    WithdrawUndelegated(WithdrawUndelegated),
     DistributeStakingRewards(DistributeStakingRewards),
     AddDelegatedStake(AddDelegatedStake),
     UnlockDelegatedStake(UnlockDelegatedStake),
@@ -1871,6 +1941,27 @@ impl InternalOperation {
                                 }));
                             }
                         },
+                        Ok(OperationType::WithdrawUndelegated) => {
+                            if let (
+                                Some(OperationMetadata {
+                                    operator: Some(operator),
+                                    amount,
+                                    ..
+                                }),
+                                Some(account),
+                            ) = (&operation.metadata, &operation.account)
+                            {
+                                return Ok(Self::WithdrawUndelegated(
+                                    WithdrawUndelegated { 
+                                        owner: account.account_address()?,
+                                        operator: operator.account_address()?,
+                                        amount_withdrawn: amount.map(u64::from).unwrap_or_default(),
+                                        // TODO: WE DON'T NEED!
+                                        pool_address: operator.account_address()?,
+                                    },
+                                ));
+                            }
+                        },
                         _ => {},
                     }
                 }
@@ -1899,6 +1990,7 @@ impl InternalOperation {
             Self::InitializeStakePool(inner) => inner.owner,
             Self::ResetLockup(inner) => inner.owner,
             Self::UnlockStake(inner) => inner.owner,
+            Self::WithdrawUndelegated(inner) => inner.owner,
             Self::DistributeStakingRewards(inner) => inner.sender,
             Self::AddDelegatedStake(inner) => inner.delegator,
             Self::UnlockDelegatedStake(inner) => inner.delegator,
@@ -1968,6 +2060,14 @@ impl InternalOperation {
                     unlock_stake.amount,
                 ),
                 unlock_stake.owner,
+            ),
+            //TODO: MISSING SENDER?
+            InternalOperation::WithdrawUndelegated(withdraw_undelegated) => (
+                aptos_stdlib::delegation_pool_withdraw(
+                    withdraw_undelegated.pool_address,
+                    withdraw_undelegated.amount_withdrawn,
+                ),
+                withdraw_undelegated.owner,
             ),
             InternalOperation::DistributeStakingRewards(distribute_staking_rewards) => (
                 aptos_stdlib::staking_contract_distribute(
@@ -2154,6 +2254,14 @@ pub struct UnlockStake {
     pub owner: AccountAddress,
     pub operator: AccountAddress,
     pub amount: u64,
+}
+
+#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+pub struct WithdrawUndelegated {
+    pub owner: AccountAddress,
+    pub operator: AccountAddress,
+    pub pool_address: AccountAddress,
+    pub amount_withdrawn: u64,
 }
 
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]

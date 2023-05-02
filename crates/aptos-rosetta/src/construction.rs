@@ -1112,6 +1112,24 @@ async fn construction_payloads(
                 ))));
             }
         },
+        InternalOperation::WithdrawUndelegated(inner) => {
+            if let InternalOperation::WithdrawUndelegated(ref metadata_op) =
+                metadata.internal_operation
+            {
+                if inner.operator != metadata_op.operator 
+                  || inner.pool_address != metadata_op.pool_address {
+                    return Err(ApiError::InvalidInput(Some(format!(
+                        "Withdraw undelegated operation doesn't match metadata {:?} vs {:?}",
+                        inner, metadata.internal_operation
+                    ))));
+                }
+            } else {
+                return Err(ApiError::InvalidInput(Some(format!(
+                    "Withdraw undelegated operation doesn't match metadata {:?} vs {:?}",
+                    inner, metadata.internal_operation
+                ))));
+            }
+				},
     }
 
     // Encode operation

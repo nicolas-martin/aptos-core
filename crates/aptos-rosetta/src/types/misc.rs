@@ -102,6 +102,7 @@ pub enum OperationType {
     InitializeStakePool,
     ResetLockup,
     UnlockStake,
+    WithdrawUndelegated,
     DistributeStakingRewards,
     AddDelegatedStake,
     UnlockDelegatedStake,
@@ -123,6 +124,7 @@ impl OperationType {
     const UNLOCK_DELEGATED_STAKE: &'static str = "unlock_delegated_stake";
     const UNLOCK_STAKE: &'static str = "unlock_stake";
     const WITHDRAW: &'static str = "withdraw";
+    const WITHDRAW_UNDELEGATED: &'static str = "withdraw_undelegated";
 
     pub fn all() -> Vec<OperationType> {
         use OperationType::*;
@@ -137,6 +139,7 @@ impl OperationType {
             InitializeStakePool,
             ResetLockup,
             UnlockStake,
+            WithdrawUndelegated,
             DistributeStakingRewards,
             AddDelegatedStake,
             UnlockDelegatedStake,
@@ -159,6 +162,7 @@ impl FromStr for OperationType {
             Self::INITIALIZE_STAKE_POOL => Ok(OperationType::InitializeStakePool),
             Self::RESET_LOCKUP => Ok(OperationType::ResetLockup),
             Self::UNLOCK_STAKE => Ok(OperationType::UnlockStake),
+            Self::WITHDRAW_UNDELEGATED => Ok(OperationType::WithdrawUndelegated),
             Self::DISTRIBUTE_STAKING_REWARDS => Ok(OperationType::DistributeStakingRewards),
             Self::ADD_DELEGATED_STAKE => Ok(OperationType::AddDelegatedStake),
             Self::UNLOCK_DELEGATED_STAKE => Ok(OperationType::UnlockDelegatedStake),
@@ -183,6 +187,7 @@ impl Display for OperationType {
             InitializeStakePool => Self::INITIALIZE_STAKE_POOL,
             ResetLockup => Self::RESET_LOCKUP,
             UnlockStake => Self::UNLOCK_STAKE,
+            WithdrawUndelegated => Self::WITHDRAW_UNDELEGATED,
             DistributeStakingRewards => Self::DISTRIBUTE_STAKING_REWARDS,
             AddDelegatedStake => Self::ADD_DELEGATED_STAKE,
             UnlockDelegatedStake => Self::UNLOCK_DELEGATED_STAKE,
